@@ -1,37 +1,72 @@
 module mul(
-        input wire [9:0] mul_div_op,
-        input wire [31:0] alu_src1,
-        input wire [31:0] alu_src2,
-        output wire [31:0] mul_result
+    input wire clk,            // ??????
+    input wire reset,
+    input wire mult,
+    input wire [9:0] mul_div_op,
+    input wire [31:0] alu_src1,
+    input wire [31:0] alu_src2,
+    output wire[31:0] mul_result,
+    output wire done           // ?????????
+);
+    // ??????????
+    wire [63:0] mul_res64;
+    wire signed_op = (mul_div_op[0] || mul_div_op[1]) ? 1'b1 : 1'b0;
+    wire ready;
+    // ?????????????????????????
+    reg [2:0] op_reg;
 
+    // ??????????????????????????
+    reg [1:0] result_sel;
+
+    // ??????????????????????????
+    reg [31:0] result_reg;
+
+    // ?????????
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            op_reg <= 3'b0;
+        end else if (mult) begin
+            op_reg <= mul_div_op[2:0];
+        end
+    end
+
+    // ??????????????????????????????????
+    always @(*) begin
+        case (op_reg)
+            3'b001: result_sel = 2'b01;  // MUL (??32¦Ë)
+            3'b010: result_sel = 2'b10;  // MULH (?§Ù????32¦Ë)
+            3'b100: result_sel = 2'b11;  // MULHU (??????32¦Ë)
+            default: result_sel = 2'b00;
+        endcase
+    end
+
+    // ?????????????????????
+    TopMultiplier topmul_inst (
+        .clk(clk),
+        .reset(reset),
+        .mult(mult),
+        .x_in(alu_src1),  // ???????????????????
+        .y_in(alu_src2),
+        .signed_op(signed_op),
+        .result_out(mul_res64),
+        .done(done)
     );
-    wire [63:0] signed_mul_result64;
-    wire [63:0] unsigned_mul_result64;
 
-    wire op_mul;   //signed multiply operation low
-    wire op_mulh;  //signed multiply operation high
-    wire op_mulhu;  //unsigned multiply operation high
+    // ??????????????done??§¹??????
+    always @(*) begin
+        if (reset) begin
+            result_reg = 32'b0;
+        end else if (done) begin
+            // ??done??§¹???????
+            case (result_sel)
+                2'b01: result_reg = mul_res64[31:0];   // MUL
+                2'b10: result_reg = mul_res64[63:32];  // MULH
+                2'b11: result_reg = mul_res64[63:32];  // MULHU
+                default: result_reg = 32'b0;
+            endcase
+        end
+    end
 
-    assign op_mul  = mul_div_op[0];
-    assign op_mulh = mul_div_op[1];
-    assign op_mulhu= mul_div_op[2];
-
-    // // è¿™é‡Œä¼šè‡ªåŠ¨è°ƒç”¨ ip
-    // // verilator ä»¿çœŸ
-    assign signed_mul_result64 = $signed(alu_src1) * $signed(alu_src2);
-    assign unsigned_mul_result64 = $unsigned(alu_src1) * $unsigned(alu_src2);
-
-    // mul_top o(
-    //             .alu_src1(alu_src1),
-    //             .alu_src2(alu_src2),
-    //             .mul_div_op(1'b1),
-    //             .signed_mul_result(signed_mul_result64),
-    //             .unsigned_mul_result(unsigned_mul_result64)
-    //         );
-
-    assign mul_result = ({32{op_mul       }} & signed_mul_result64[31:0])
-           | ({32{op_mulh      }} & signed_mul_result64[63:32])
-           | ({32{op_mulhu     }} & unsigned_mul_result64[63:32]);
-
-
+    // ????????????????????¦È????
+    assign mul_result = result_reg;
 endmodule

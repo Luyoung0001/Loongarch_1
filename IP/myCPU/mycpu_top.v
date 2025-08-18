@@ -1081,6 +1081,8 @@ module core_top
     wire [31:0] wbu_st_data_diff;
 
     wire ws_excp_diff;
+
+
     WBU #(TLBNUM) wbu(
             // 时钟和复位
             .clk(aclk),

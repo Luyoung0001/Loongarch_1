@@ -311,11 +311,29 @@ module EXU
 
     // 乘法器
     wire [31:0] mul_result;
-    mul mul(
+
+    wire mul_complete;
+    reg mul_complete_r;
+    wire multi = mul_div_op[0] | mul_div_op[1] | mul_div_op[2];
+    wire do_multi = multi && exu_valid && !(mul_complete || mul_complete_r);
+    always @(posedge clk) begin
+        if(rst || idu_to_exu_valid && exu_allowin || flush_sign) begin
+            mul_complete_r <= 1'b0;
+        end
+        else if(multi && exu_valid && mul_complete) begin
+            mul_complete_r <= 1'b1;
+        end
+    end
+
+    mul mul_o(
+            .clk (clk),
+            .reset(rst),
+            .mult(do_multi),
             .mul_div_op(mul_div_op),
             .alu_src1(wire_alu_src1),
             .alu_src2(wire_alu_src2),
-            .mul_result(mul_result)
+            .mul_result(mul_result),
+            .done(mul_complete)
         );
 
     // 除法器
@@ -439,7 +457,7 @@ module EXU
             inst_bubble_i_r <= inst_bubble_i;
         end
     end
-    assign done = es_excp || flush_sign ? 1'b1: (div ? div_or_mul_complete : 1'b1);
+   assign done = es_excp || flush_sign ? 1'b1: ((div || multi) ? (div_or_mul_complete || mul_complete_r) : 1'b1);
 
     assign exu_ready_go = done;
     assign exu_allowin = !exu_valid || exu_ready_go && mem_allowin;

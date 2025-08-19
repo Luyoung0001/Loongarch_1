@@ -87,24 +87,17 @@ module dcache(
 
     // 这里的 cache 为 4_way
     // V D Tag Data------> 1'bx  1'bx  20'bx  128'bx
-    reg [149:0] cache_line_0[255:0]/*debug*/;
-    reg [149:0] cache_line_1[255:0];
+    reg [148:0] cache_line_0[255:0]/*debug*/;
+    reg [148:0] cache_line_1[255:0];
     // reg [149:0] cache_line_2[255:0];
     // reg [149:0] cache_line_3[255:0];
 
-    integer i;
-    initial begin
-        for (i = 0; i < 256; i = i + 1) begin
-            cache_line_0[i] = 150'b0;
-            cache_line_1[i] = 150'b0;
-        end
-    end
-
-
+    reg [255:0] cache_line_0_V;
+    reg [255:0] cache_line_1_V;
 
     reg [31:0] main_refill_data_buffer [3:0];
 
-`define V      149
+    // `define V      149
 `define D      148
 `define Tag    147:128
 `define Data   127:0
@@ -137,8 +130,8 @@ module dcache(
            cacop_op_mode1 ? cacop_mode0_1_way :
            cacop_op_mode2 ? way_hit :
            // V 优先
-           (!cache_line_0[request_buffer_index][`V]) ? 2'b01 :
-           (!cache_line_1[request_buffer_index][`V]) ? 2'b10 :
+           (!cache_line_0_V[request_buffer_index]) ? 2'b01 :
+           (!cache_line_1_V[request_buffer_index]) ? 2'b10 :
            //    (!cache_line_2[request_buffer_index][`V]) ? 4'b0100 :
            //    (!cache_line_3[request_buffer_index][`V]) ? 4'b1000 :
            // D
@@ -168,14 +161,14 @@ module dcache(
            //    replace_way[3] ? cache_line_3[request_buffer_index][`D] :
            1'b0;
 
-    assign replace_v = replace_way[0] ? cache_line_0[request_buffer_index][`V] :
-           replace_way[1] ? cache_line_1[request_buffer_index][`V] :
+    assign replace_v = replace_way[0] ? cache_line_0_V[request_buffer_index] :
+           replace_way[1] ? cache_line_1_V[request_buffer_index]:
            //    replace_way[2] ? cache_line_2[request_buffer_index][`V] :
            //    replace_way[3] ? cache_line_3[request_buffer_index][`V] :
            1'b0;
 
-    assign way_hit[0] = cache_line_0[request_buffer_index][`V] && cache_line_0[request_buffer_index][`Tag] == request_buffer_tag;
-    assign way_hit[1] = cache_line_1[request_buffer_index][`V] && cache_line_1[request_buffer_index][`Tag] == request_buffer_tag;
+    assign way_hit[0] = cache_line_0_V[request_buffer_index] && cache_line_0[request_buffer_index][`Tag] == request_buffer_tag;
+    assign way_hit[1] = cache_line_1_V[request_buffer_index] && cache_line_1[request_buffer_index][`Tag] == request_buffer_tag;
     // assign way_hit[2] = cache_line_2[request_buffer_index][`V] && cache_line_2[request_buffer_index][`Tag] == request_buffer_tag;
     // assign way_hit[3] = cache_line_3[request_buffer_index][`V] && cache_line_3[request_buffer_index][`Tag] == request_buffer_tag;
 
@@ -252,86 +245,93 @@ module dcache(
 
     // 如果是 uncache，不更新 cache ，仅仅利用 axi_cache 读写通道就行
     always @(posedge clk) begin
-        // 如果重填完成，就可以就 refill_data 填到对应的 way 了
-        if(refill_done && !request_buffer_uncache_en) begin
-            cache_line_0[request_buffer_index][`Data] <= replace_way[0] ? refill_data : cache_line_0[request_buffer_index][`Data];
-            cache_line_1[request_buffer_index][`Data] <= replace_way[1] ? refill_data : cache_line_1[request_buffer_index][`Data];
-            // cache_line_2[request_buffer_index][`Data] <= replace_way[2] ? refill_data : cache_line_2[request_buffer_index][`Data];
-            // cache_line_3[request_buffer_index][`Data] <= replace_way[3] ? refill_data : cache_line_3[request_buffer_index][`Data];
-
-            cache_line_0[request_buffer_index][`Tag] <= replace_way[0] ? request_buffer_tag : cache_line_0[request_buffer_index][`Tag];
-            cache_line_1[request_buffer_index][`Tag] <= replace_way[1] ? request_buffer_tag : cache_line_1[request_buffer_index][`Tag];
-            // cache_line_2[request_buffer_index][`Tag] <= replace_way[2] ? request_buffer_tag : cache_line_2[request_buffer_index][`Tag];
-            // cache_line_3[request_buffer_index][`Tag] <= replace_way[3] ? request_buffer_tag : cache_line_3[request_buffer_index][`Tag];
-
-            cache_line_0[request_buffer_index][`V]   <= replace_way[0] ? 1'b1 : cache_line_0[request_buffer_index][`V];
-            cache_line_1[request_buffer_index][`V]   <= replace_way[1] ? 1'b1 : cache_line_1[request_buffer_index][`V];
-            // cache_line_2[request_buffer_index][`V]   <= replace_way[2] ? 1'b1 : cache_line_2[request_buffer_index][`V];
-            // cache_line_3[request_buffer_index][`V]   <= replace_way[3] ? 1'b1 : cache_line_3[request_buffer_index][`V];
-
-            cache_line_0[request_buffer_index][`D]   <= replace_way[0] ? 1'b0 : cache_line_0[request_buffer_index][`D];
-            cache_line_1[request_buffer_index][`D]   <= replace_way[1] ? 1'b0 : cache_line_1[request_buffer_index][`D];
-            // cache_line_2[request_buffer_index][`D]   <= replace_way[2] ? 1'b0 : cache_line_2[request_buffer_index][`D];
-            // cache_line_3[request_buffer_index][`D]   <= replace_way[3] ? 1'b0 : cache_line_3[request_buffer_index][`D];
+        if(!resetn) begin
+            // 复位，刷掉 V 信息
+            cache_line_0_V <= 256'd0;
+            cache_line_1_V <= 256'd0;
         end
-        // 如果写命中， 只需要更新 data、D
-        if(main_state_is_write && !request_buffer_uncache_en) begin
-            cache_line_0[request_buffer_index][`Data] <= way_hit[0] ? write_hit_data : cache_line_0[request_buffer_index][`Data];
-            cache_line_1[request_buffer_index][`Data] <= way_hit[1] ? write_hit_data : cache_line_1[request_buffer_index][`Data];
-            // cache_line_2[request_buffer_index][`Data] <= way_hit[2] ? write_hit_data : cache_line_2[request_buffer_index][`Data];
-            // cache_line_3[request_buffer_index][`Data] <= way_hit[3] ? write_hit_data : cache_line_3[request_buffer_index][`Data];
+        else begin
+            // 如果重填完成，就可以就 refill_data 填到对应的 way 了
+            if(refill_done && !request_buffer_uncache_en) begin
+                cache_line_0[request_buffer_index][`Data] <= replace_way[0] ? refill_data : cache_line_0[request_buffer_index][`Data];
+                cache_line_1[request_buffer_index][`Data] <= replace_way[1] ? refill_data : cache_line_1[request_buffer_index][`Data];
+                // cache_line_2[request_buffer_index][`Data] <= replace_way[2] ? refill_data : cache_line_2[request_buffer_index][`Data];
+                // cache_line_3[request_buffer_index][`Data] <= replace_way[3] ? refill_data : cache_line_3[request_buffer_index][`Data];
 
-            cache_line_0[request_buffer_index][`D]   <= way_hit[0] ? 1'b1 : cache_line_0[request_buffer_index][`D];
-            cache_line_1[request_buffer_index][`D]   <= way_hit[1] ? 1'b1 : cache_line_1[request_buffer_index][`D];
-            // cache_line_2[request_buffer_index][`D]   <= way_hit[2] ? 1'b1 : cache_line_2[request_buffer_index][`D];
-            // cache_line_3[request_buffer_index][`D]   <= way_hit[3] ? 1'b1 : cache_line_3[request_buffer_index][`D];
-        end
-        // cacop
-        // 这里采用严格模式, 全部无效化
-        // 将指定 cache line 的 tag 置为 0
-        // mode_0 需要将 tag 置为 0
-        if (main_state_is_lookup && cacop_op_mode0) begin
-            case (cacop_mode0_1_way)
-                2'b01:
-                    cache_line_0[request_buffer_index][`Tag] <= 20'd0;
-                2'b10:
-                    cache_line_1[request_buffer_index][`Tag] <= 20'd0;
-                // // 4'b0100:
-                // cache_line_2[request_buffer_index][`Tag] <= 20'd0;
-                // // 4'b1000:
-                // cache_line_3[request_buffer_index][`Tag] <= 20'd0;
-                default: begin
-                end
-            endcase
-        end
-        // mode_1 需要无效化
-        else if(main_state_is_replace && cacop_op_mode1) begin
-            case (cacop_mode0_1_way)
-                2'b01:
-                    cache_line_0[request_buffer_index][`V] <= 1'b0;
-                2'b10:
-                    cache_line_1[request_buffer_index][`V] <= 1'b0;
-                // 4'b0100:
-                //     cache_line_2[request_buffer_index][`V] <= 1'b0;
-                // 4'b1000:
-                //     cache_line_3[request_buffer_index][`V] <= 1'b0;
-                default: begin
-                end
-            endcase
-        end
-        else if(main_state_is_replace && cache_hit && cacop_op_mode2) begin
-            case (way_hit)
-                2'b01:
-                    cache_line_0[request_buffer_index][`V] <= 1'b0;
-                2'b10:
-                    cache_line_1[request_buffer_index][`V] <= 1'b0;
-                // 4'b0100:
-                //     cache_line_2[request_buffer_index][`V] <= 1'b0;
-                // 4'b1000:
-                //     cache_line_3[request_buffer_index][`V] <= 1'b0;
-                default: begin
-                end
-            endcase
+                cache_line_0[request_buffer_index][`Tag] <= replace_way[0] ? request_buffer_tag : cache_line_0[request_buffer_index][`Tag];
+                cache_line_1[request_buffer_index][`Tag] <= replace_way[1] ? request_buffer_tag : cache_line_1[request_buffer_index][`Tag];
+                // cache_line_2[request_buffer_index][`Tag] <= replace_way[2] ? request_buffer_tag : cache_line_2[request_buffer_index][`Tag];
+                // cache_line_3[request_buffer_index][`Tag] <= replace_way[3] ? request_buffer_tag : cache_line_3[request_buffer_index][`Tag];
+
+                cache_line_0_V[request_buffer_index]   <= replace_way[0] ? 1'b1 : cache_line_0_V[request_buffer_index];
+                cache_line_1_V[request_buffer_index]   <= replace_way[1] ? 1'b1 : cache_line_1_V[request_buffer_index];
+                // cache_line_2[request_buffer_index][`V]   <= replace_way[2] ? 1'b1 : cache_line_2[request_buffer_index][`V];
+                // cache_line_3[request_buffer_index][`V]   <= replace_way[3] ? 1'b1 : cache_line_3[request_buffer_index][`V];
+
+                cache_line_0[request_buffer_index][`D]   <= replace_way[0] ? 1'b0 : cache_line_0[request_buffer_index][`D];
+                cache_line_1[request_buffer_index][`D]   <= replace_way[1] ? 1'b0 : cache_line_1[request_buffer_index][`D];
+                // cache_line_2[request_buffer_index][`D]   <= replace_way[2] ? 1'b0 : cache_line_2[request_buffer_index][`D];
+                // cache_line_3[request_buffer_index][`D]   <= replace_way[3] ? 1'b0 : cache_line_3[request_buffer_index][`D];
+            end
+            // 如果写命中， 只需要更新 data、D
+            if(main_state_is_write && !request_buffer_uncache_en) begin
+                cache_line_0[request_buffer_index][`Data] <= way_hit[0] ? write_hit_data : cache_line_0[request_buffer_index][`Data];
+                cache_line_1[request_buffer_index][`Data] <= way_hit[1] ? write_hit_data : cache_line_1[request_buffer_index][`Data];
+                // cache_line_2[request_buffer_index][`Data] <= way_hit[2] ? write_hit_data : cache_line_2[request_buffer_index][`Data];
+                // cache_line_3[request_buffer_index][`Data] <= way_hit[3] ? write_hit_data : cache_line_3[request_buffer_index][`Data];
+
+                cache_line_0[request_buffer_index][`D]   <= way_hit[0] ? 1'b1 : cache_line_0[request_buffer_index][`D];
+                cache_line_1[request_buffer_index][`D]   <= way_hit[1] ? 1'b1 : cache_line_1[request_buffer_index][`D];
+                // cache_line_2[request_buffer_index][`D]   <= way_hit[2] ? 1'b1 : cache_line_2[request_buffer_index][`D];
+                // cache_line_3[request_buffer_index][`D]   <= way_hit[3] ? 1'b1 : cache_line_3[request_buffer_index][`D];
+            end
+            // cacop
+            // 这里采用严格模式, 全部无效化
+            // 将指定 cache line 的 tag 置为 0
+            // mode_0 需要将 tag 置为 0
+            if (main_state_is_lookup && cacop_op_mode0) begin
+                case (cacop_mode0_1_way)
+                    2'b01:
+                        cache_line_0[request_buffer_index][`Tag] <= 20'd0;
+                    2'b10:
+                        cache_line_1[request_buffer_index][`Tag] <= 20'd0;
+                    // // 4'b0100:
+                    // cache_line_2[request_buffer_index][`Tag] <= 20'd0;
+                    // // 4'b1000:
+                    // cache_line_3[request_buffer_index][`Tag] <= 20'd0;
+                    default: begin
+                    end
+                endcase
+            end
+            // mode_1 需要无效化
+            else if(main_state_is_replace && cacop_op_mode1) begin
+                case (cacop_mode0_1_way)
+                    2'b01:
+                        cache_line_0_V[request_buffer_index] <= 1'b0;
+                    2'b10:
+                        cache_line_1_V[request_buffer_index] <= 1'b0;
+                    // 4'b0100:
+                    //     cache_line_2[request_buffer_index][`V] <= 1'b0;
+                    // 4'b1000:
+                    //     cache_line_3[request_buffer_index][`V] <= 1'b0;
+                    default: begin
+                    end
+                endcase
+            end
+            else if(main_state_is_replace && cache_hit && cacop_op_mode2) begin
+                case (way_hit)
+                    2'b01:
+                        cache_line_0_V[request_buffer_index] <= 1'b0;
+                    2'b10:
+                        cache_line_1_V[request_buffer_index] <= 1'b0;
+                    // 4'b0100:
+                    //     cache_line_2[request_buffer_index][`V] <= 1'b0;
+                    // 4'b1000:
+                    //     cache_line_3[request_buffer_index][`V] <= 1'b0;
+                    default: begin
+                    end
+                endcase
+            end
         end
     end
 
